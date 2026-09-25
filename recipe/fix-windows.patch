@@ -1,0 +1,142 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 2e3a686..5406317 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -32,7 +32,6 @@ google_enable_testing()
+ find_package(absl REQUIRED)
+ set(BOOST_COMPONENTS iostreams)
+ if(WIN32)
+-  list(APPEND BOOST_COMPONENTS zlib)
+   set(Boost_USE_STATIC_LIBS FALSE)
+ endif()
+ find_package(Boost REQUIRED COMPONENTS ${BOOST_COMPONENTS})
+@@ -123,7 +130,7 @@ foreach(ABS_FIL ${ALL_PROTOS})
+     OUTPUT "${PROJECT_BINARY_DIR}/${DIR}/${FIL_WE}.pb.cc"
+            "${PROJECT_BINARY_DIR}/${DIR}/${FIL_WE}.pb.h"
+     COMMAND  ${PROTOBUF_PROTOC_EXECUTABLE}
+-    ARGS --cpp_out  ${PROJECT_BINARY_DIR} -I
++    ARGS --cpp_out dllexport_decl=CARTOGRAPHER_API_PUBLIC:${PROJECT_BINARY_DIR} -I
+       ${PROJECT_SOURCE_DIR} ${ABS_FIL}
+     DEPENDS ${ABS_FIL}
+     COMMENT "Running C++ protocol buffer compiler on ${ABS_FIL}"
+@@ -149,7 +156,7 @@ if(${BUILD_GRPC})
+       OUTPUT "${PROJECT_BINARY_DIR}/${DIR}/${FIL_WE}.pb.cc"
+              "${PROJECT_BINARY_DIR}/${DIR}/${FIL_WE}.pb.h"
+       COMMAND  ${PROTOBUF_PROTOC_EXECUTABLE}
+-      ARGS --cpp_out  ${PROJECT_BINARY_DIR}
++      ARGS --cpp_out dllexport_decl=CARTOGRAPHER_API_PUBLIC:${PROJECT_BINARY_DIR}
+         -I ${PROJECT_SOURCE_DIR}
+         ${ABS_FIL}
+       DEPENDS ${ABS_FIL}
+@@ -184,7 +184,9 @@ if(${BUILD_GRPC})
+ endif()
+ set(INSTALL_GENERATED_HDRS ${ALL_PROTO_HDRS} ${ALL_GRPC_SERVICE_HDRS})
+ 
+-add_library(${PROJECT_NAME} STATIC ${ALL_LIBRARY_HDRS} ${ALL_LIBRARY_SRCS})
++add_library(${PROJECT_NAME} ${ALL_LIBRARY_HDRS} ${ALL_LIBRARY_SRCS})
++target_compile_definitions(${PROJECT_NAME} PRIVATE "CARTOGRAPHER_API_BUILDING_DLL")
++target_compile_definitions(${PROJECT_NAME} PRIVATE "CARTOGRAPHER_API_PUBLIC=__declspec(dllexport)")
+ 
+ configure_file(
+   ${PROJECT_SOURCE_DIR}/cartographer/common/config.h.cmake
+@@ -238,6 +247,7 @@ set(TARGET_COMPILE_FLAGS "${TARGET_COMPILE_FLAGS} ${GOOG_CXX_FLAGS}")
+ set_target_properties(${PROJECT_NAME} PROPERTIES
+   COMPILE_FLAGS ${TARGET_COMPILE_FLAGS})
+ 
++if(NOT WIN32)
+ set(TEST_LIB
+   cartographer_test_library
+ )
+@@ -248,6 +258,7 @@ target_link_libraries(${TEST_LIB} PUBLIC ${GMOCK_LIBRARY})
+ target_link_libraries(${TEST_LIB} PUBLIC ${PROJECT_NAME})
+ set_target_properties(${TEST_LIB} PROPERTIES
+   COMPILE_FLAGS ${TARGET_COMPILE_FLAGS})
++target_compile_definitions(${TEST_LIB} PRIVATE "CARTOGRAPHER_API_PUBLIC=__declspec(dllimport)")
+ 
+ foreach(ABS_FIL ${ALL_TESTS})
+   file(RELATIVE_PATH REL_FIL ${PROJECT_SOURCE_DIR} ${ABS_FIL})
+@@ -264,7 +275,9 @@ foreach(ABS_FIL ${ALL_TESTS})
+     target_link_libraries("${TEST_TARGET_NAME}" PUBLIC prometheus-cpp)
+   endif()
+   target_link_libraries("${TEST_TARGET_NAME}" PUBLIC ${TEST_LIB})
++  target_compile_definitions("${TEST_TARGET_NAME}" PRIVATE "CARTOGRAPHER_API_PUBLIC=__declspec(dllimport)")
+ endforeach()
++endif()
+ 
+ # Add the binary directory first, so that port.h is included after it has
+ # been generated.
+diff --git a/cartographer/common/configuration_file_resolver.cc b/cartographer/common/configuration_file_resolver.cc
+index 9774caf..99c703c 100644
+--- a/cartographer/common/configuration_file_resolver.cc
++++ b/cartographer/common/configuration_file_resolver.cc
+@@ -19,6 +19,7 @@
+ #include <fstream>
+ #include <iostream>
+ #include <streambuf>
++#include <cstdlib>
+ 
+ #include "cartographer/common/config.h"
+ #include "glog/logging.h"
+@@ -30,6 +31,8 @@ ConfigurationFileResolver::ConfigurationFileResolver(
+     const std::vector<std::string>& configuration_files_directories)
+     : configuration_files_directories_(configuration_files_directories) {
+   configuration_files_directories_.push_back(kConfigurationFilesDirectory);
++  if(const char* config_dir = std::getenv("CARTOGRAPHER_CONFIG_DIR"))
++    configuration_files_directories_.push_back(config_dir);
+ }
+ 
+ std::string ConfigurationFileResolver::GetFullPathOrDie(
+diff --git a/cartographer/common/port.h b/cartographer/common/port.h
+index 338861f..ad4fda2 100644
+--- a/cartographer/common/port.h
++++ b/cartographer/common/port.h
+@@ -25,6 +25,37 @@
+ #include <boost/iostreams/filter/gzip.hpp>
+ #include <boost/iostreams/filtering_stream.hpp>
+ 
++// This logic was borrowed (then namespaced) from the examples on the gcc wiki:
++//     https://gcc.gnu.org/wiki/Visibility
++
++#if defined _WIN32 || defined __CYGWIN__
++  #ifdef __GNUC__
++    #define CARTOGRAPHER_API_EXPORT __attribute__ ((dllexport))
++    #define CARTOGRAPHER_API_IMPORT __attribute__ ((dllimport))
++  #else
++    #define CARTOGRAPHER_API_EXPORT __declspec(dllexport)
++    #define CARTOGRAPHER_API_IMPORT __declspec(dllimport)
++  #endif
++  #ifdef CARTOGRAPHER_API_BUILDING_DLL
++    #define CARTOGRAPHER_API_PUBLIC CARTOGRAPHER_API_EXPORT
++  #else
++    #define CARTOGRAPHER_API_PUBLIC CARTOGRAPHER_API_IMPORT
++  #endif
++  #define CARTOGRAPHER_API_PUBLIC_TYPE CARTOGRAPHER_API_PUBLIC
++  #define CARTOGRAPHER_API_LOCAL
++#else
++  #define CARTOGRAPHER_API_EXPORT __attribute__ ((visibility("default")))
++  #define CARTOGRAPHER_API_IMPORT
++  #if __GNUC__ >= 4
++    #define CARTOGRAPHER_API_PUBLIC __attribute__ ((visibility("default")))
++    #define CARTOGRAPHER_API_LOCAL  __attribute__ ((visibility("hidden")))
++  #else
++    #define CARTOGRAPHER_API_PUBLIC
++    #define CARTOGRAPHER_API_LOCAL
++  #endif
++  #define CARTOGRAPHER_API_PUBLIC_TYPE
++#endif
++
+ namespace cartographer {
+ 
+ using int8 = int8_t;
+diff --git a/cartographer/mapping/pose_graph_interface.h b/cartographer/mapping/pose_graph_interface.h
+index 6483ef4..6456720 100644
+--- a/cartographer/mapping/pose_graph_interface.h
++++ b/cartographer/mapping/pose_graph_interface.h
+@@ -18,6 +18,7 @@
+ #define CARTOGRAPHER_MAPPING_POSE_GRAPH_INTERFACE_H_
+ 
+ #include <vector>
++#include <array>
+ 
+ #include "cartographer/common/optional.h"
+ #include "cartographer/mapping/id.h"

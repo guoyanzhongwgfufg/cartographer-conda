@@ -1,0 +1,40 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index ef2fcb3e6..b6cdc6c00 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -295,6 +295,9 @@ if(${BUILD_PROMETHEUS})
+   target_link_libraries(${PROJECT_NAME} PUBLIC prometheus-cpp-pull)
+   target_compile_definitions(${PROJECT_NAME} PUBLIC USE_PROMETHEUS=1)
+ endif()
++if(UNIX AND NOT APPLE)
++  target_link_libraries(${PROJECT_NAME} PUBLIC rt)
++endif()
+ 
+ set(TARGET_COMPILE_FLAGS "${TARGET_COMPILE_FLAGS} ${GOOG_CXX_FLAGS}")
+ set_target_properties(${PROJECT_NAME} PROPERTIES
+diff --git a/cartographer/mapping/pose_graph_interface.h b/cartographer/mapping/pose_graph_interface.h
+index 6483ef4..6456720 100644
+--- a/cartographer/mapping/pose_graph_interface.h
++++ b/cartographer/mapping/pose_graph_interface.h
+@@ -18,6 +18,7 @@
+ #define CARTOGRAPHER_MAPPING_POSE_GRAPH_INTERFACE_H_
+ 
+ #include <vector>
++#include <array>
+ 
+ #include "cartographer/common/optional.h"
+ #include "cartographer/mapping/id.h"
+diff --git a/cartographer/mapping/internal/3d/scan_matching/rotation_delta_cost_functor_3d_test.cc b/cartographer/mapping/internal/3d/scan_matching/rotation_delta_cost_functor_3d_test.cc
+index 86f46d4..8fdef65 100644
+--- a/cartographer/mapping/internal/3d/scan_matching/rotation_delta_cost_functor_3d_test.cc
++++ b/cartographer/mapping/internal/3d/scan_matching/rotation_delta_cost_functor_3d_test.cc
+@@ -14,6 +14,9 @@
+  * limitations under the License.
+  */
+ 
++#include <array>
++#include <vector>
++
+ #include "cartographer/mapping/internal/3d/scan_matching/rotation_delta_cost_functor_3d.h"
+ 
+ #include "gtest/gtest.h"
