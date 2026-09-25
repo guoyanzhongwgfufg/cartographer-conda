@@ -1,4 +1,4 @@
-About cartographer-feedstock
+About cartographer-conda
 ============================
 
 Feedstock license: [BSD-3-Clause](https://github.com/conda-forge/cartographer-feedstock/blob/main/LICENSE.txt)
